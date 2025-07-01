@@ -23,6 +23,8 @@
             overflow: hidden;
             box-shadow: 0 0 10px rgba(0,0,0,0.2);
             margin-bottom: 40px;
+            position: relative;
+            background-color: #000020;
         }
         canvas {
             display: block;
@@ -119,61 +121,177 @@
         <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/GLTFLoader.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
         <script>
-            // Scene setup
+            // Scene setup for Duck-Man (Pac-Man with ducks)
             const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0xffffff);
+            scene.background = new THREE.Color(0x000020); // Dark blue like classic Pac-Man
             
             const container = document.getElementById('viewer-container');
-            const camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+            const camera = new THREE.OrthographicCamera(
+                -10, 10, 7.5, -7.5, 0.1, 1000
+            );
             const renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
             container.appendChild(renderer.domElement);
 
             // Add lights
-            const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1.2); // Brighter
             scene.add(ambientLight);
             
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
-            directionalLight.position.set(1, 1, 1);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8); // Brighter
+            directionalLight.position.set(0, 10, 0);
             scene.add(directionalLight);
 
-            // Add a second directional light from the opposite side
-            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 1);
-            directionalLight2.position.set(-1, 1, -1);
-            scene.add(directionalLight2);
-
-            // Add orbit controls
-            const controls = new THREE.OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.minDistance = 0.5;
-            controls.maxDistance = 5;
-            controls.target.set(0, 0, 0);
-
-            // Position camera
-            camera.position.set(0, 0.5, 1);
+            // Position camera for top-down view
+            camera.position.set(0, 20, 0); // Higher up
             camera.lookAt(0, 0, 0);
 
-            // Add a grid helper
-            const gridHelper = new THREE.GridHelper(2, 10);
-            scene.add(gridHelper);
+            // Game variables
+            let pacDuck = null;
+            const ghosts = [];
+            const pellets = [];
+            const walls = [];
+            let score = 0;
+            let gameRunning = false; // Don't start until first key press
+            let gameStarted = false; // Track if game has ever been started
+            
+            // Player movement
+            const keys = { w: false, a: false, s: false, d: false };
+            const moveSpeed = 1.0; // Move exactly one unit at a time
+            let isMoving = false; // Prevent multiple moves while animating
+            let targetPosition = null; // Target position for smooth animation
+            let moveStartTime = 0;
+            const moveDuration = 200; // Animation duration in milliseconds
+            
+            // Create maze walls
+            function createMaze() {
+                const wallGeometry = new THREE.BoxGeometry(1, 1, 1); // Taller walls
+                const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+                
+                // Simplified maze layout for better visibility
+                const maze = [
+                    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                    [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1],
+                    [1,0,1,1,0,1,0,1,0,1,0,1,1,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,1,0,1,1,1,0,1,1,1,0,1,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,1,1,0,1,0,1,1,1,0,1,0,1,1,1],
+                    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                    [1,1,1,0,1,0,1,1,1,0,1,0,1,1,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,1,0,1,1,1,0,1,1,1,0,1,0,1],
+                    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                    [1,0,1,1,0,1,0,1,0,1,0,1,1,0,1],
+                    [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1],
+                    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+                ];
+                
+                for (let row = 0; row < maze.length; row++) {
+                    for (let col = 0; col < maze[row].length; col++) {
+                        if (maze[row][col] === 1) {
+                            const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+                            wall.position.set(col - 7, 0.5, row - 7); // Centered maze
+                            scene.add(wall);
+                            walls.push(wall);
+                        } else {
+                            // Add pellets in empty spaces (skip some for better spacing)
+                            if (Math.random() > 0.3) { // Only 70% chance of pellet
+                                const pelletGeometry = new THREE.SphereGeometry(0.12, 8, 8); // Doubled from 0.06 to 0.12
+                                const pelletMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+                                const pellet = new THREE.Mesh(pelletGeometry, pelletMaterial);
+                                pellet.position.set(col - 7, 0.5, row - 7);
+                                scene.add(pellet);
+                                pellets.push(pellet);
+                            }
+                        }
+                    }
+                }
+            }
 
-            // Load the model
+            // Create score display
+            function updateScoreDisplay() {
+                // Remove existing score display
+                const existingScore = document.getElementById('score-display');
+                if (existingScore) existingScore.remove();
+                
+                const scoreDiv = document.createElement('div');
+                scoreDiv.id = 'score-display';
+                scoreDiv.style.position = 'absolute';
+                scoreDiv.style.top = '10px';
+                scoreDiv.style.left = '10px';
+                scoreDiv.style.color = 'yellow';
+                scoreDiv.style.fontSize = '24px';
+                scoreDiv.style.fontFamily = 'monospace';
+                scoreDiv.style.zIndex = '1000';
+                
+                if (!gameStarted) {
+                    scoreDiv.textContent = 'PRESS WASD TO START';
+                } else {
+                    scoreDiv.textContent = `SCORE: ${score}`;
+                }
+                
+                container.appendChild(scoreDiv);
+            }
+
+            // Load the duck model and create game elements
             const loader = new THREE.GLTFLoader();
             loader.load(
                 '/duck.glb',
                 function (gltf) {
-                    const model = gltf.scene;
-                    model.scale.set(10, 10, 10);
-                    scene.add(model);
+                    const originalModel = gltf.scene;
                     
-                    // Center the model
-                    const box = new THREE.Box3().setFromObject(model);
-                    const center = box.getCenter(new THREE.Vector3());
-                    model.position.sub(center);
+                    // Create Pac-Duck (player)
+                    pacDuck = originalModel.clone();
+                    pacDuck.scale.set(20, 20, 20); // Doubled from 10 to 20
+                    pacDuck.position.set(0, 1, 0); // Higher up
                     
-                    // Move to floor level
-                    model.position.y = 0;
+                    // Make Pac-Duck yellow like Pac-Man
+                    pacDuck.traverse((child) => {
+                        if (child.isMesh) {
+                            child.material = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+                        }
+                    });
+                    scene.add(pacDuck);
+                    
+                    // Create Ghost Ducks
+                    const ghostColors = [0xff0000, 0xff69b4, 0x00ffff, 0xffa500]; // Red, Pink, Cyan, Orange
+                    const ghostNames = ['Blinky', 'Pinky', 'Inky', 'Clyde'];
+                    // Position ghosts in the four corners of the maze (most distant from center)
+                    const ghostPositions = [
+                        { x: -6, z: -6 }, // Top-left corner
+                        { x: 6, z: -6 },  // Top-right corner
+                        { x: -6, z: 6 },  // Bottom-left corner
+                        { x: 6, z: 6 }    // Bottom-right corner
+                    ];
+                    
+                    for (let i = 0; i < 4; i++) {
+                        const ghost = originalModel.clone();
+                        ghost.scale.set(16, 16, 16); // Doubled from 8 to 16
+                        ghost.position.set(ghostPositions[i].x, 1, ghostPositions[i].z); // Higher up
+                        ghost.userData = { 
+                            name: ghostNames[i], 
+                            direction: Math.random() * Math.PI * 2,
+                            speed: 0.05 + Math.random() * 0.03, // Increased speed for visibility
+                            lastMoveTime: 0,
+                            moveInterval: 300 + Math.random() * 200 // Move every 300-500ms
+                        };
+                        
+                        // Color the ghost
+                        ghost.traverse((child) => {
+                            if (child.isMesh) {
+                                child.material = new THREE.MeshBasicMaterial({ color: ghostColors[i] });
+                            }
+                        });
+                        
+                        scene.add(ghost);
+                        ghosts.push(ghost);
+                    }
+                    
+                    // Create maze
+                    createMaze();
+                    updateScoreDisplay();
+                    
+                    console.log('Duck-Man game loaded! Use WASD to move.');
                 },
                 function (xhr) {
                     console.log((xhr.loaded / xhr.total * 100) + '% loaded');
@@ -183,10 +301,172 @@
                 }
             );
 
+            // Keyboard controls - only trigger on key press, not hold
+            let keysPressed = { w: false, a: false, s: false, d: false };
+            
+            document.addEventListener('keydown', (event) => {
+                if (!pacDuck) return; // Wait for duck to load
+                
+                const key = event.key.toLowerCase();
+                if (['w', 'a', 's', 'd'].includes(key)) {
+                    // Start the game on first movement key press
+                    if (!gameStarted) {
+                        gameStarted = true;
+                        gameRunning = true;
+                        updateScoreDisplay();
+                        console.log('Game started!');
+                    }
+                    
+                    if (!gameRunning || isMoving) return;
+                    
+                    if (!keysPressed[key]) {
+                        keysPressed[key] = true;
+                        
+                        // Calculate target position
+                        const newPosition = pacDuck.position.clone();
+                        switch(key) {
+                            case 'w': newPosition.z -= moveSpeed; break;
+                            case 's': newPosition.z += moveSpeed; break;
+                            case 'a': newPosition.x -= moveSpeed; break;
+                            case 'd': newPosition.x += moveSpeed; break;
+                        }
+                        
+                        // Check if move is valid
+                        if (!checkWallCollision(newPosition)) {
+                            startMove(newPosition);
+                            
+                            // Rotate Pac-Duck based on movement direction
+                            switch(key) {
+                                case 'w': pacDuck.rotation.y = 0; break;
+                                case 's': pacDuck.rotation.y = Math.PI; break;
+                                case 'a': pacDuck.rotation.y = Math.PI / 2; break;
+                                case 'd': pacDuck.rotation.y = -Math.PI / 2; break;
+                            }
+                        }
+                    }
+                }
+            });
+
+            document.addEventListener('keyup', (event) => {
+                const key = event.key.toLowerCase();
+                if (['w', 'a', 's', 'd'].includes(key)) {
+                    keysPressed[key] = false;
+                }
+            });
+            
+            function startMove(newPosition) {
+                isMoving = true;
+                targetPosition = newPosition.clone();
+                moveStartTime = Date.now();
+                // Store the current position as the start position for animation
+                pacDuck.userData.startPosition = pacDuck.position.clone();
+            }
+
+            // Game logic
+            function checkCollision(pos1, pos2, distance = 0.5) {
+                return Math.sqrt(
+                    Math.pow(pos1.x - pos2.x, 2) + Math.pow(pos1.z - pos2.z, 2)
+                ) < distance;
+            }
+
+            function checkWallCollision(newPosition) {
+                for (let wall of walls) {
+                    if (checkCollision(newPosition, wall.position, 0.7)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function updateGame() {
+                if (!gameRunning || !pacDuck) return;
+                
+                // Handle Pac-Duck movement animation
+                if (isMoving && targetPosition) {
+                    const elapsed = Date.now() - moveStartTime;
+                    const progress = Math.min(elapsed / moveDuration, 1);
+                    
+                    // Use the stored start position for smooth interpolation
+                    const startPosition = pacDuck.userData.startPosition;
+                    if (startPosition) {
+                        pacDuck.position.lerpVectors(startPosition, targetPosition, progress);
+                    }
+                    
+                    // Movement complete
+                    if (progress >= 1) {
+                        pacDuck.position.copy(targetPosition);
+                        isMoving = false;
+                        targetPosition = null;
+                        pacDuck.userData.startPosition = null; // Clear the start position
+                    }
+                }
+                
+                // Check pellet collection
+                for (let i = pellets.length - 1; i >= 0; i--) {
+                    if (checkCollision(pacDuck.position, pellets[i].position, 0.4)) { // Increased collision radius for larger characters
+                        scene.remove(pellets[i]);
+                        pellets.splice(i, 1);
+                        score += 10;
+                        updateScoreDisplay();
+                    }
+                }
+                
+                // Move ghosts (only if game has started)
+                if (gameStarted) {
+                    const currentTime = Date.now();
+                    ghosts.forEach(ghost => {
+                    // Check if it's time for this ghost to move
+                    if (currentTime - ghost.userData.lastMoveTime > ghost.userData.moveInterval) {
+                        // Simple AI: occasionally move towards Pac-Duck
+                        if (Math.random() < 0.3) { // 30% chance to target Pac-Duck
+                            const dx = pacDuck.position.x - ghost.position.x;
+                            const dz = pacDuck.position.z - ghost.position.z;
+                            ghost.userData.direction = Math.atan2(dz, dx);
+                        } else if (Math.random() < 0.2) {
+                            // 20% chance to change direction randomly
+                            ghost.userData.direction = Math.random() * Math.PI * 2;
+                        }
+                        
+                        // Calculate new position (grid-based like Pac-Duck)
+                        const newGhostPos = ghost.position.clone();
+                        newGhostPos.x += Math.cos(ghost.userData.direction) * moveSpeed;
+                        newGhostPos.z += Math.sin(ghost.userData.direction) * moveSpeed;
+                        
+                        // Round to nearest grid position
+                        newGhostPos.x = Math.round(newGhostPos.x);
+                        newGhostPos.z = Math.round(newGhostPos.z);
+                        
+                        // Check wall collision for ghosts
+                        if (!checkWallCollision(newGhostPos)) {
+                            ghost.position.copy(newGhostPos);
+                            ghost.userData.lastMoveTime = currentTime;
+                        } else {
+                            // If blocked by wall, try a different direction
+                            ghost.userData.direction += Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 4;
+                            ghost.userData.lastMoveTime = currentTime - ghost.userData.moveInterval + 100; // Try again soon
+                        }
+                    }
+                    
+                    // Check collision with Pac-Duck
+                    if (checkCollision(pacDuck.position, ghost.position, 0.6)) { // Increased collision radius for larger characters
+                        gameRunning = false;
+                        alert(`Game Over! Final Score: ${score}`);
+                        location.reload();
+                    }
+                });
+                
+                // Check win condition
+                if (pellets.length === 0) {
+                    gameRunning = false;
+                    alert(`You Won! Final Score: ${score}`);
+                }
+                } // Close the gameStarted if statement
+            }
+
             // Animation loop
             function animate() {
                 requestAnimationFrame(animate);
-                controls.update();
+                updateGame();
                 renderer.render(scene, camera);
             }
             animate();
